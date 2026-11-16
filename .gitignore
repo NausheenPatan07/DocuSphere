@@ -1,0 +1,23 @@
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Python
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+flask_error.log
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# IDE and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
