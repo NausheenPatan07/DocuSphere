@@ -210,9 +210,9 @@ DocuSphere/
 
 ### Installation Steps (Windows PowerShell)
 
-1. Open PowerShell and navigate to the `backend` directory:
+1. Open PowerShell and navigate to the `backend` directory from the repository root:
    ```powershell
-   cd "C:\Users\naush\DocuSphere\backend"
+   cd backend
    ```
 
 2. Create a dedicated Python virtual environment:
@@ -224,6 +224,7 @@ DocuSphere/
    ```powershell
    .\venv\Scripts\Activate.ps1
    ```
+   *(Note: On Windows PowerShell, if script execution is restricted, run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` first. On Linux/macOS, run `source venv/bin/activate`.)*
 
 4. Upgrade `pip` to the latest version:
    ```powershell
@@ -245,9 +246,9 @@ DocuSphere/
 
 ### Installation Steps (Windows PowerShell)
 
-1. Open PowerShell and navigate to the `frontend` directory:
+1. Open PowerShell and navigate to the `frontend` directory from the repository root:
    ```powershell
-   cd "C:\Users\naush\DocuSphere\frontend"
+   cd frontend
    ```
 
 2. Install Node dependencies from `package.json`:
@@ -260,13 +261,20 @@ DocuSphere/
 ## 9. Environment Configuration
 
 ### Backend Configuration (`backend/.env`)
-Create a file named `.env` inside `C:\Users\naush\DocuSphere\backend\.env`:
+Copy the provided template `backend/.env.example` to `backend/.env` (or create it manually):
+
+```powershell
+cd backend
+Copy-Item .env.example .env
+```
+
+Populate the configuration values:
 
 ```ini
 # Flask Secret Key for session signing
 SECRET_KEY=your_secure_flask_secret_key_here
 
-# JWT Signing Secret Key
+# JWT Signing Secret Key (minimum 32 characters recommended for HMAC-SHA256)
 JWT_SECRET_KEY=your_secure_jwt_secret_key_here
 
 # MongoDB Atlas Connection String (SRV format with TLS)
@@ -277,13 +285,23 @@ MONGO_DB_NAME=docusphere_db
 
 # Allowed Frontend Origin for CORS
 FRONTEND_URL=http://localhost:5173
+
+# Optional: Flask Debug Mode (defaults to False in production)
+FLASK_DEBUG=False
 ```
 
 > [!CAUTION]
-> Never commit actual passwords, private database connection strings, or JWT secret keys to source control. The `.env` file is excluded via `.gitignore`.
+> Never commit actual passwords, private database connection strings, or JWT secret keys to source control. The `.env` file is excluded via `.gitignore`. A safe template is provided in `backend/.env.example`.
 
 ### Frontend Configuration (`frontend/.env`)
-Create a file named `.env` inside `C:\Users\naush\DocuSphere\frontend\.env`:
+Copy the provided template `frontend/.env.example` to `frontend/.env` (or create it manually):
+
+```powershell
+cd frontend
+Copy-Item .env.example .env
+```
+
+Populate the configuration values:
 
 ```ini
 # Base URL for the Flask API Backend
@@ -317,15 +335,25 @@ Upon application startup, `init_db()` verifies and initializes critical indexes:
 
 ## 11. OCR Setup and Tesseract Installation
 
-DocuSphere employs a dual-pass extraction strategy implemented in [ocr_service.py](file:///C:/Users/naush/DocuSphere/backend/app/services/ocr_service.py):
+DocuSphere employs a dual-pass extraction strategy implemented in [ocr_service.py](backend/app/services/ocr_service.py):
 
 1. **Digital Parsing Pass**: Uses **PyMuPDF (`fitz`)** to inspect PDF streams. If text is selectable, it is extracted immediately without rasterization.
 2. **Raster OCR Pass**: If a PDF page is scanned or contains no selectable text (or if the upload is an image), the page is rendered to high-resolution pixmaps (`Matrix(2, 2)`) and processed with **Tesseract OCR**.
 
 ### Host Tesseract Configuration
 Tesseract OCR must be installed on the host system:
-- **Default Windows Path**: `C:\Program Files\Tesseract-OCR\tesseract.exe`
-- If Tesseract is installed at the default location, `ocr_service.py` automatically binds `pytesseract.pytesseract.tesseract_cmd = TESSERACT_PATH`.
+- **Windows**: The default Windows installer path is `C:\Program Files\Tesseract-OCR\tesseract.exe`. If Tesseract is present at this path, `ocr_service.py` automatically binds `pytesseract.pytesseract.tesseract_cmd = TESSERACT_PATH`. If installed in another folder, add that folder to your Windows system `PATH` or update `TESSERACT_PATH` in `backend/app/services/ocr_service.py`.
+- **Linux (Ubuntu/Debian)**: Install Tesseract via your system package manager:
+  ```bash
+  sudo apt update && sudo apt install -y tesseract-ocr tesseract-ocr-eng
+  ```
+  The binary is placed in `/usr/bin/tesseract` and is automatically discovered on the system `PATH`.
+- **macOS**: Install Tesseract via Homebrew:
+  ```bash
+  brew install tesseract
+  ```
+  The binary is placed in `/opt/homebrew/bin/tesseract` (Apple Silicon) or `/usr/local/bin/tesseract` (Intel) and is automatically discovered on the system `PATH`.
+- When `TESSERACT_PATH` does not exist on the host filesystem (as on Linux/macOS or non-default Windows installations), `pytesseract` automatically searches the host operating system's `PATH`.
 - Supported Image MIME Types: `image/png`, `image/jpeg`, `image/tiff`.
 
 ---
@@ -369,6 +397,30 @@ sequenceDiagram
 | Create/configure dynamic metadata fields | No | No | Yes |
 | Access the Audit Log Viewer | No | No | Yes |
 
+### Bootstrapping the Initial Administrator
+
+For enterprise security, user registration via `POST /api/auth/register` (and the frontend Signup interface) strictly assigns `role: "employee"`. There is deliberately no public API parameter to self-assign administrative privileges, preventing unauthenticated privilege escalation.
+
+To bootstrap the initial System Administrator account:
+
+1. **Register the Account**: Register the intended user normally through the frontend (`/signup`) or via `POST /api/auth/register` with name, email, password, and an initial division.
+2. **Promote via MongoDB**: A trusted database administrator must promote the account directly in the MongoDB database. Connect with `mongosh` or MongoDB Compass to the target cluster and run:
+
+```javascript
+// Switch to your configured database (matching MONGO_DB_NAME in backend/.env)
+use docusphere_db
+
+// Promote the registered user to System Administrator
+db.users.updateOne(
+  { email: "admin.user@example.com" },
+  { $set: { role: "admin" } }
+)
+```
+*(Replace `admin.user@example.com` with the designated user's registered email address).*
+
+> [!WARNING]
+> System Administrators possess universal, cross-division visibility across all corporate documents, administrative configuration settings, and audit trails. Only promote verified, trusted accounts to the `admin` role. Never expose direct database promotion scripts or endpoints publicly.
+
 ---
 
 ## 13. Division-Based Document Management
@@ -389,6 +441,21 @@ All document access is compartmentalized by `division_id`.
   - Direct downloads via `GET /api/documents/<doc_id>/download` verify whether the requester belongs to the owning division.
   - If from another division, the endpoint queries `db.access_requests` for an `approved` record for that user. If not found, `HTTP 403 Forbidden` is returned.
 
+### Document Listing and Dynamic Filtering (`GET /api/documents`)
+
+The repository listing endpoint supports both `GET /api/documents` and `GET /api/documents/`:
+- **Division Scoping**: Employees only receive documents belonging to their assigned division. System Administrators receive documents across all corporate divisions.
+- **Filename Search (`?q=`)**: Case-insensitive substring regex matching on filenames (e.g., `GET /api/documents?q=report`).
+- **Dynamic Metadata Filtering**: Supports filtering documents by any active metadata schema definition using either its internal key or display label:
+  - Text fields perform case-insensitive partial substring matching.
+  - Dropdown fields perform case-insensitive exact option matching.
+  - Multiple metadata parameters are combined using logical `AND`.
+  - Inactive or unknown query parameters are safely filtered out and never injected into MongoDB query paths.
+  - **Examples**:
+    - By internal key: `GET /api/documents?report_type=Technical%20Report`
+    - By display label: `GET /api/documents?Report%20Type=Technical%20Report`
+    - Combined filename search and metadata filter: `GET /api/documents?q=quarterly&report_type=Financial%20Report`
+
 ---
 
 ## 14. Cross-Division Access Request and Approval Workflow
@@ -398,17 +465,17 @@ When a user requires access to a file outside their department, DocuSphere enfor
 ```mermaid
 stateDiagram-v2
     [*] --> Pending: Employee submits POST /api/access/request
-    Pending --> Approved: Admin reviews POST /api/access/approve (decision="approved")
-    Pending --> Rejected: Admin reviews POST /api/access/approve (decision="rejected")
+    Pending --> Approved: Reviewer processes POST /api/access/approve (decision="approved")
+    Pending --> Rejected: Reviewer processes POST /api/access/approve (decision="rejected")
     Approved --> [*]: User downloads document & discovers in search
     Rejected --> [*]: Download attempts blocked (HTTP 403)
 ```
 
-1. **Submission**: User calls `POST /api/access/request` with `document_id` and `reason`.
-2. **Concurrency Control**: A unique index on `active_request_key` (`<user_id>_<document_id>_pending`) prevents duplicate simultaneous pending requests.
-3. **Inbox Review**: Administrators access `GET /api/access/inbox`.
-4. **Decision**: Calling `POST /api/access/approve` with `decision: "approved"` or `"rejected"` resolves the request, updates timestamps, and records an audit log entry.
-5. **Enforcement**: Approved users can immediately download the document and find it via semantic search.
+1. **Submission**: User calls `POST /api/access/request` with `doc_id` (or `document_id`) and an optional business `reason` (up to 1000 characters).
+2. **Concurrency Control**: A unique index on `active_request_key` (`{document_id}:{user_id}`) prevents duplicate simultaneous active requests.
+3. **Inbox Review**: System Administrators and authorized Division Administrators access `GET /api/access/inbox`. Division Administrators review requests for documents owned by their division.
+4. **Decision**: Reviewer calls `POST /api/access/approve` with `request_id`. The `decision` parameter is optional and defaults to `"approved"`. Explicit rejection is performed by passing `decision: "rejected"`. Decisions update timestamps, record reviewer identity, and write an immutable audit log entry.
+5. **Enforcement**: Approved users can immediately download the document via `GET /api/documents/<doc_id>/download` and discover it in semantic search.
 
 ---
 
@@ -416,17 +483,23 @@ stateDiagram-v2
 
 DocuSphere decouples document schemas from static code:
 
-- **Configuration**: System administrators define fields in [Settings.jsx](file:///C:/Users/naush/DocuSphere/frontend/src/pages/Settings.jsx) or via `POST /api/metadata/fields`.
-  - Standard configured fields:
+> [!IMPORTANT]
+> Dynamic metadata fields are **not automatically seeded** on a fresh database installation; `db.metadata_fields` starts empty. System Administrators must configure initial active fields via the frontend Settings page (`/settings`) or via `POST /api/metadata/fields` prior to uploading documents that require them.
+
+- **Configuration**: System administrators define fields in [Settings.jsx](frontend/src/pages/Settings.jsx) or via `POST /api/metadata/fields`.
+  - Common configured field patterns:
     - `report_type`: Dropdown, `required = True`, Options: `Test Report`, `Technical Report`, `Financial Report`, `Research Report`.
     - `project_code`: Text, `required = False`.
 - **Validation**: When uploading, `backend/app/routes/documents.py` validates that all fields with `required: True` are present and that dropdown selections match allowed options. Non-compliant uploads are rejected with `HTTP 400 Bad Request`.
+- **Editing & Soft Deactivation**:
+  - `PUT /api/metadata/fields/<field_id>`: Allows administrators to update field `label`, `required` status, and dropdown `options`. Field `key` and `type` remain strictly immutable to preserve historical data consistency.
+  - `DELETE /api/metadata/fields/<field_id>`: Performs a soft delete by setting `is_active: False`. Existing documents retain their historical metadata without data loss, while inactive fields are excluded from new uploads and filter options.
 
 ---
 
 ## 16. Keyword Search, AI Semantic Search, and Hybrid Search
 
-DocuSphere provides three distinct search modes in [AdvancedSearch.jsx](file:///C:/Users/naush/DocuSphere/frontend/src/pages/AdvancedSearch.jsx):
+DocuSphere provides three distinct search modes in [AdvancedSearch.jsx](frontend/src/pages/AdvancedSearch.jsx):
 
 ### 1. Keyword Search (`GET /api/search?q=<query>`)
 - Searches lexical regex matches across `filename`, `extracted_text`, and all configured `metadata.<key>` fields.
@@ -449,7 +522,7 @@ DocuSphere provides three distinct search modes in [AdvancedSearch.jsx](file:///
 ### Embedding Backfill Script
 For existing documents uploaded before embeddings were enabled, run the backfill utility:
 ```powershell
-cd "C:\Users\naush\DocuSphere\backend"
+cd backend
 .\venv\Scripts\python.exe scripts\backfill_embeddings.py
 ```
 Pass `--force` to recompute embeddings for all documents.
@@ -458,7 +531,7 @@ Pass `--force` to recompute embeddings for all documents.
 
 ## 17. Audit Logging and Admin Audit Log Viewer
 
-Located in [backend/app/routes/audit.py](file:///C:/Users/naush/DocuSphere/backend/app/routes/audit.py) and [frontend/src/pages/AuditLogs.jsx](file:///C:/Users/naush/DocuSphere/frontend/src/pages/AuditLogs.jsx):
+Located in [backend/app/routes/audit.py](backend/app/routes/audit.py) and [frontend/src/pages/AuditLogs.jsx](frontend/src/pages/AuditLogs.jsx):
 
 - **Logged Actions**:
   - `document_uploaded`: Records filename, content type, OCR status, text length.
@@ -484,15 +557,17 @@ All endpoints below have been verified against the backend routing implementatio
 | **Auth** | `GET` | `/api/auth/me` | JWT | Returns current authenticated user profile & division |
 | **Auth** | `GET` | `/api/auth/admin-test` | JWT (Admin) | Verifies administrator authorization decorator |
 | **Divisions**| `GET` | `/api/divisions/` | No | Retrieves all corporate divisions |
-| **Divisions**| `POST` | `/api/divisions/seed` | No | Seeds default divisions (Engineering, Finance, HR) |
+| **Divisions**| `POST` | `/api/divisions/seed` | JWT (Admin) | Seeds default divisions (Engineering, Finance, HR) |
 | **Documents**| `POST` | `/api/documents/upload` | JWT | Ingests file, runs OCR & embedding, validates metadata |
-| **Documents**| `GET` | `/api/documents/` | JWT | Lists repository documents scoped by division/role |
+| **Documents**| `GET` | `/api/documents/` | JWT | Lists repository documents scoped by division/role; supports `?q=` and dynamic metadata filters |
 | **Documents**| `GET` | `/api/documents/<doc_id>/download` | JWT | Streams file from GridFS with division/approval checks |
 | **Metadata** | `GET` | `/api/metadata/fields` | JWT | Retrieves active dynamic metadata fields |
 | **Metadata** | `POST` | `/api/metadata/fields` | JWT (Admin) | Configures a new dynamic metadata field |
-| **Access** | `POST` | `/api/access/request` | JWT | Creates a cross-division document access request |
-| **Access** | `GET` | `/api/access/inbox` | JWT (Admin) | Retrieves pending requests for administrative review |
-| **Access** | `POST` | `/api/access/approve` | JWT (Admin) | Approves or rejects a cross-division access request |
+| **Metadata** | `PUT` | `/api/metadata/fields/<field_id>` | JWT (Admin) | Updates field label, required flag, or dropdown options |
+| **Metadata** | `DELETE`| `/api/metadata/fields/<field_id>` | JWT (Admin) | Soft-deactivates dynamic metadata field (`is_active = false`) |
+| **Access** | `POST` | `/api/access/request` | JWT | Creates a cross-division document access request (`doc_id` or `document_id`) |
+| **Access** | `GET` | `/api/access/inbox` | JWT (Admin / Division Admin) | Retrieves pending requests for administrative review |
+| **Access** | `POST` | `/api/access/approve` | JWT (Admin / Division Admin) | Approves (default) or rejects a cross-division access request |
 | **Access** | `GET` | `/api/access/my-requests` | JWT | Returns current user's submitted access requests |
 | **Search** | `GET` | `/api/search` | JWT | Exact lexical keyword search across documents |
 | **Search** | `GET` | `/api/search/semantic` | JWT | AI dense vector semantic search with cosine similarity |
@@ -505,18 +580,18 @@ All endpoints below have been verified against the backend routing implementatio
 ## 19. Running the Application
 
 ### 1. Start the Flask Backend Server
-In PowerShell:
+In PowerShell from the repository root:
 ```powershell
-cd "C:\Users\naush\DocuSphere\backend"
+cd backend
 .\venv\Scripts\Activate.ps1
 python run.py
 ```
 *The backend server initializes on `http://127.0.0.1:5000`.*
 
 ### 2. Start the React Frontend Development Server
-In a separate PowerShell window:
+In a separate PowerShell window from the repository root:
 ```powershell
-cd "C:\Users\naush\DocuSphere\frontend"
+cd frontend
 npm run dev
 ```
 *The frontend development server initializes on `http://localhost:5173`.*
@@ -525,28 +600,35 @@ npm run dev
 
 ## 20. Testing and Verification
 
-DocuSphere includes comprehensive automated integration test suites.
+DocuSphere includes automated test and verification scripts located in `backend/` and `backend/scripts/`.
 
-### Running Backend Integration Tests
-Execute the verification suite from the backend directory:
+> [!NOTE]
+> **Test Execution Prerequisites**:
+> 1. The verification scripts below make live HTTP calls to `http://127.0.0.1:5000`. The Flask backend server (`python run.py`) must already be actively running in a separate terminal before executing these scripts.
+> 2. These verification scripts were authored for development verification against pre-configured development databases with established test accounts (e.g. `nausheen.test@example.com`, `finance.test@example.com`) and specific document IDs. They are **not** an isolated, fresh-database test runner.
+> 3. No sample PDF files or pre-populated starter databases are bundled with the repository. Developers should upload their own test PDFs or generate test documents programmatically.
+> 4. `pytest` is included in `backend/requirements.txt` for authoring custom isolated unit and integration test suites.
+
+### Running Backend Verification Scripts
+From the repository root, activate the virtual environment and execute the desired script:
 ```powershell
-cd "C:\Users\naush\DocuSphere\backend"
+cd backend
 .\venv\Scripts\Activate.ps1
 
-# Run search verification tests
+# Run semantic & hybrid search verification (requires running backend & seeded data)
 python scripts\test_phase2_search.py
 
-# Run access control & workflow verification tests
+# Run access control & workflow verification (requires running backend & seeded data)
 python test_access_workflow.py
 
-# Run upload & keyword search tests
+# Run upload & keyword search tests (requires running backend & seeded data)
 python scripts\test_upload_and_keyword_search.py
 ```
 
 ### Running Frontend Production Build Verification
 Confirm the frontend compiles with zero JSX or bundling errors:
 ```powershell
-cd "C:\Users\naush\DocuSphere\frontend"
+cd frontend
 npm run build
 ```
 
@@ -615,7 +697,10 @@ The following interface views illustrate DocuSphere's design system:
 
 ### 1. Tesseract OCR Not Found
 - **Symptom**: Scanned PDFs return `ocr_status: "failed"` with `tesseract is not installed or it's not in your PATH`.
-- **Fix**: Verify Tesseract is installed at `C:\Program Files\Tesseract-OCR\tesseract.exe`. If installed in another folder, update `TESSERACT_PATH` in `backend/app/services/ocr_service.py` or add Tesseract to your Windows system `PATH`.
+- **Fix**:
+  - **Windows**: Verify Tesseract is installed at `C:\Program Files\Tesseract-OCR\tesseract.exe`. If installed in another folder, add that folder to your Windows system `PATH` or update `TESSERACT_PATH` in `backend/app/services/ocr_service.py`.
+  - **Linux (Ubuntu/Debian)**: Install Tesseract using `sudo apt update && sudo apt install -y tesseract-ocr tesseract-ocr-eng`. Verify `/usr/bin/tesseract` is on your `PATH`.
+  - **macOS**: Install Tesseract using `brew install tesseract`. Verify the binary is on your `PATH`.
 
 ### 2. MongoDB Atlas Connection Timeout
 - **Symptom**: `ServerSelectionTimeoutError` or SSL alert on startup.

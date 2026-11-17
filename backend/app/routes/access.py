@@ -77,7 +77,7 @@ def request_document_access():
             "message": "Request body must be a JSON object"
         }), 400
 
-    document_id = data.get("document_id")
+    document_id = data.get("doc_id") or data.get("document_id")
     reason = data.get("reason", "")
 
     if (
@@ -272,7 +272,7 @@ def decide_access_request():
         }), 400
 
     request_id = data.get("request_id")
-    decision = data.get("decision")
+    decision = data.get("decision") or "approved"
 
     if (
         not isinstance(request_id, str)

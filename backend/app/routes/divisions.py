@@ -1,6 +1,9 @@
 
 from flask import Blueprint, jsonify
+from flask_jwt_extended import jwt_required
+
 import app.extensions as extensions
+from app.utils.decorators import role_required
 
 divisions_bp = Blueprint("divisions", __name__)
 
@@ -21,6 +24,8 @@ def get_divisions():
 
 
 @divisions_bp.route("/seed", methods=["POST"])
+@jwt_required()
+@role_required("admin")
 def seed_divisions():
     db = extensions.db
 

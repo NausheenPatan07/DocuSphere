@@ -21,6 +21,9 @@ import {
   AlignLeft,
   ChevronRight,
   Info,
+  Edit2,
+  Trash2,
+  AlertTriangle,
 } from 'lucide-react';
 
 const Settings = () => {
@@ -43,6 +46,20 @@ const Settings = () => {
   const [newOptionsStr, setNewOptionsStr] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  // Edit Field Form State
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingField, setEditingField] = useState(null);
+  const [editLabel, setEditLabel] = useState('');
+  const [editRequired, setEditRequired] = useState(false);
+  const [editOptionsStr, setEditOptionsStr] = useState('');
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [editError, setEditError] = useState('');
+
+  // Deactivate Field State
+  const [showDeactivateModal, setShowDeactivateModal] = useState(false);
+  const [fieldToDeactivate, setFieldToDeactivate] = useState(null);
+  const [deactivating, setDeactivating] = useState(false);
 
   const fetchData = async () => {
     setLoading(true);
@@ -125,6 +142,99 @@ const Settings = () => {
       toast.error(msg);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleOpenEditModal = (field) => {
+    setEditingField(field);
+    setEditLabel(field.label || '');
+    setEditRequired(field.required === true);
+    const opts = Array.isArray(field.options)
+      ? field.options.join(', ')
+      : typeof field.options === 'string'
+      ? field.options
+      : '';
+    setEditOptionsStr(opts);
+    setEditError('');
+    setShowEditModal(true);
+  };
+
+  const handleUpdateField = async (e) => {
+    e.preventDefault();
+    if (!editLabel.trim()) {
+      setEditError('Field label is required');
+      return;
+    }
+
+    if (editingField?.type === 'dropdown') {
+      const opts = editOptionsStr
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (opts.length === 0) {
+        setEditError('Dropdown fields must have at least one option');
+        return;
+      }
+    }
+
+    setEditSubmitting(true);
+    setEditError('');
+
+    try {
+      const payload = {
+        label: editLabel.trim(),
+        required: editRequired,
+        options:
+          editingField?.type === 'dropdown'
+            ? editOptionsStr
+                .split(',')
+                .map((s) => s.trim())
+                .filter(Boolean)
+            : [],
+      };
+
+      const res = await metadataApi.updateField(editingField.id, payload);
+      if (res.status === 'success') {
+        toast.success(`Metadata field "${payload.label}" updated successfully`);
+        setShowEditModal(false);
+        setEditingField(null);
+        fetchData();
+      } else {
+        toast.error(res.message || 'Failed to update field');
+      }
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Failed to update metadata field';
+      setEditError(msg);
+      toast.error(msg);
+    } finally {
+      setEditSubmitting(false);
+    }
+  };
+
+  const handleOpenDeactivateModal = (field) => {
+    setFieldToDeactivate(field);
+    setShowDeactivateModal(true);
+  };
+
+  const handleConfirmDeactivate = async () => {
+    if (!fieldToDeactivate) return;
+    setDeactivating(true);
+
+    try {
+      const res = await metadataApi.deactivateField(fieldToDeactivate.id);
+      if (res.status === 'success') {
+        toast.success(`Metadata field "${fieldToDeactivate.label}" deactivated successfully`);
+        setShowDeactivateModal(false);
+        setFieldToDeactivate(null);
+        fetchData();
+      } else {
+        toast.error(res.message || 'Failed to deactivate field');
+      }
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Failed to deactivate metadata field';
+      toast.error(msg);
+    } finally {
+      setDeactivating(false);
     }
   };
 
@@ -275,6 +385,7 @@ const Settings = () => {
                         <th>Data Type</th>
                         <th>Validation</th>
                         <th>Options / Constraints</th>
+                        {isAdmin && <th style={{ textAlign: 'right', width: '160px' }}>Actions</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -339,6 +450,32 @@ const Settings = () => {
                               <span style={{ fontSize: '12px', color: '#94a3b8' }}>Standard Input</span>
                             )}
                           </td>
+                          {isAdmin && (
+                            <td style={{ textAlign: 'right' }}>
+                              <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', alignItems: 'center' }}>
+                                <button
+                                  type="button"
+                                  className="ds-btn ds-btn-outline ds-btn-sm"
+                                  onClick={() => handleOpenEditModal(field)}
+                                  title="Edit field attributes"
+                                  style={{ padding: '4px 8px', fontSize: '12px' }}
+                                >
+                                  <Edit2 size={13} style={{ marginRight: '4px' }} />
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  className="ds-btn ds-btn-outline ds-btn-sm"
+                                  onClick={() => handleOpenDeactivateModal(field)}
+                                  title="Deactivate field"
+                                  style={{ padding: '4px 8px', fontSize: '12px', color: '#ef4444', borderColor: '#fca5a5' }}
+                                >
+                                  <Trash2 size={13} style={{ marginRight: '4px' }} />
+                                  Deactivate
+                                </button>
+                              </div>
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -664,6 +801,189 @@ const Settings = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Metadata Field Modal (Admin Only) */}
+      {showEditModal && isAdmin && editingField && (
+        <div className="ds-modal-overlay" onClick={() => setShowEditModal(false)}>
+          <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="ds-modal-header">
+              <div className="ds-modal-title">Edit Dynamic Metadata Field</div>
+            </div>
+
+            <form onSubmit={handleUpdateField}>
+              <div className="ds-modal-body">
+                {editError && (
+                  <div
+                    style={{
+                      padding: '10px 14px',
+                      borderRadius: '8px',
+                      backgroundColor: '#fee2e2',
+                      color: '#b91c1c',
+                      fontSize: '13px',
+                      marginBottom: '16px',
+                    }}
+                  >
+                    {editError}
+                  </div>
+                )}
+
+                <div className="ds-form-group">
+                  <label className="ds-label">Field Key (database column)</label>
+                  <input
+                    type="text"
+                    className="ds-input"
+                    value={editingField.key}
+                    disabled
+                    style={{ backgroundColor: '#f1f5f9', cursor: 'not-allowed', color: '#64748b' }}
+                  />
+                  <div className="ds-help-text">
+                    Field key is immutable to ensure historical document compatibility.
+                  </div>
+                </div>
+
+                <div className="ds-form-group">
+                  <label className="ds-label">Field Input Type</label>
+                  <input
+                    type="text"
+                    className="ds-input"
+                    value={editingField.type}
+                    disabled
+                    style={{ backgroundColor: '#f1f5f9', cursor: 'not-allowed', color: '#64748b', textTransform: 'capitalize' }}
+                  />
+                  <div className="ds-help-text">
+                    Field data type cannot be changed once created.
+                  </div>
+                </div>
+
+                <div className="ds-form-group">
+                  <label className="ds-label ds-label-required">Field Label</label>
+                  <input
+                    type="text"
+                    className="ds-input"
+                    placeholder="e.g., Report Type, Department, Expense Code"
+                    value={editLabel}
+                    onChange={(e) => setEditLabel(e.target.value)}
+                    required
+                  />
+                </div>
+
+                {editingField.type === 'dropdown' && (
+                  <div className="ds-form-group">
+                    <label className="ds-label ds-label-required">
+                      Dropdown Options (Comma-separated)
+                    </label>
+                    <input
+                      type="text"
+                      className="ds-input"
+                      placeholder="e.g., Financial Audit, Technical Spec, HR Policy"
+                      value={editOptionsStr}
+                      onChange={(e) => setEditOptionsStr(e.target.value)}
+                      required
+                    />
+                    <div className="ds-help-text">
+                      Separate choices with commas. Existing documents retain their values.
+                    </div>
+                  </div>
+                )}
+
+                <div className="ds-form-group">
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13.5px', color: '#1e293b' }}>
+                    <input
+                      type="checkbox"
+                      checked={editRequired}
+                      onChange={(e) => setEditRequired(e.target.checked)}
+                      style={{ accentColor: '#0284c7' }}
+                    />
+                    Mark as mandatory / required during document upload
+                  </label>
+                </div>
+              </div>
+
+              <div className="ds-modal-footer">
+                <button
+                  type="button"
+                  className="ds-btn ds-btn-secondary"
+                  onClick={() => setShowEditModal(false)}
+                  disabled={editSubmitting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="ds-btn ds-btn-primary"
+                  disabled={editSubmitting}
+                >
+                  {editSubmitting ? 'Saving Changes...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Deactivate Metadata Field Confirmation Modal (Admin Only) */}
+      {showDeactivateModal && isAdmin && fieldToDeactivate && (
+        <div className="ds-modal-overlay" onClick={() => setShowDeactivateModal(false)}>
+          <div className="ds-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
+            <div className="ds-modal-header" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div
+                style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '50%',
+                  backgroundColor: '#fee2e2',
+                  color: '#dc2626',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <AlertTriangle size={20} />
+              </div>
+              <div className="ds-modal-title">Deactivate Metadata Field</div>
+            </div>
+
+            <div className="ds-modal-body">
+              <p style={{ fontSize: '14px', color: '#334155', lineHeight: 1.5, marginBottom: '12px' }}>
+                Are you sure you want to deactivate metadata field <strong>"{fieldToDeactivate.label}"</strong> (<code>{fieldToDeactivate.key}</code>)?
+              </p>
+              <div
+                style={{
+                  padding: '12px 14px',
+                  borderRadius: '8px',
+                  backgroundColor: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  fontSize: '13px',
+                  color: '#64748b',
+                  lineHeight: 1.5,
+                }}
+              >
+                <strong>Compatibility guarantee:</strong> This field will be removed from future upload forms. Existing documents containing this metadata will remain fully readable, accessible, and searchable.
+              </div>
+            </div>
+
+            <div className="ds-modal-footer">
+              <button
+                type="button"
+                className="ds-btn ds-btn-secondary"
+                onClick={() => setShowDeactivateModal(false)}
+                disabled={deactivating}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="ds-btn ds-btn-danger"
+                onClick={handleConfirmDeactivate}
+                disabled={deactivating}
+              >
+                {deactivating ? 'Deactivating...' : 'Deactivate Field'}
+              </button>
+            </div>
           </div>
         </div>
       )}

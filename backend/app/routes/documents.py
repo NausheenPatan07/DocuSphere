@@ -393,6 +393,7 @@ def download_document(doc_id):
 # 3. GET DOCUMENTS
 # ==========================================
 
+@documents_bp.route("", methods=["GET"])
 @documents_bp.route("/", methods=["GET"])
 @jwt_required()
 def get_documents():
@@ -435,6 +436,62 @@ def get_documents():
             "$regex": re.escape(search_text),
             "$options": "i"
         }
+
+    # ==========================================
+    # DYNAMIC METADATA FILTERING
+    # ==========================================
+
+    RESERVED_PARAMS = {"q", "page", "limit"}
+
+    # Load active metadata field definitions
+    active_fields = list(db.metadata_fields.find({
+        "is_active": True
+    }))
+
+    # Map normalized representations of field keys and labels to canonical field definitions
+    field_map = {}
+
+    for field in active_fields:
+        canonical_key = field.get("key")
+        label = field.get("label", "")
+
+        if not canonical_key:
+            continue
+
+        field_map[canonical_key.lower()] = field
+        field_map[canonical_key.lower().replace("_", " ")] = field
+
+        if label:
+            field_map[label.lower()] = field
+            field_map[label.lower().replace(" ", "_")] = field
+            field_map[" ".join(label.lower().split())] = field
+
+    for param_key, param_val in request.args.items():
+        norm_param = param_key.strip().lower()
+
+        if norm_param in RESERVED_PARAMS:
+            continue
+
+        # Strictly allow only configured active metadata fields
+        if norm_param in field_map:
+            target_field = field_map[norm_param]
+            canonical_key = target_field["key"]
+            field_type = target_field.get("type", "text")
+            val = param_val.strip()
+
+            if val:
+                if field_type == "dropdown":
+                    # Case-insensitive exact matching for dropdowns
+                    query[f"metadata.{canonical_key}"] = {
+                        "$regex": f"^{re.escape(val)}$",
+                        "$options": "i"
+                    }
+                else:
+                    # Escaped, case-insensitive partial matching for text/other fields
+                    query[f"metadata.{canonical_key}"] = {
+                        "$regex": re.escape(val),
+                        "$options": "i"
+                    }
 
     documents = db.documents.find(query).sort("_id", -1)
 
